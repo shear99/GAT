@@ -1,0 +1,11 @@
+.DS_STORE
+test/
+test_img_1/
+test_img_2/
+test_img_3/
+test_img_onii/
+3/
+eval/
+original/
+gat_model.pth
+__pycache__
