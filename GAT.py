@@ -1,6 +1,4 @@
-# GAT.py
-
-import torch  # torch 모듈 임포트 추가
+import torch
 import torch.nn.functional as F
 from torch_geometric.nn import GATConv
 

@@ -1,3 +1,4 @@
+# main.py
 import torch
 import torch.nn.functional as F
 from torch_geometric.data import DataLoader
@@ -14,8 +15,12 @@ def main():
     dataset = KeypointDataset(json_dir='3/json')  # 모든 JSON 파일이 있는 폴더 지정
     dataloader = DataLoader(dataset, batch_size=256, shuffle=True)
 
+    # Determine input feature size
+    sample_data = dataset[0]
+    in_channels = sample_data.x.size(1)
+
     # Initialize model
-    model = GAT(in_channels=2, hidden_channels=8, out_channels=2, num_heads=8).to(device)
+    model = GAT(in_channels=in_channels, hidden_channels=8, out_channels=in_channels, num_heads=8).to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.005)
 
     # Keypoint importance indices
@@ -35,7 +40,8 @@ def main():
             out = model(data.x, data.edge_index)
 
             # Compute the MSE loss with no reduction to retain individual losses
-            loss = F.mse_loss(out, data.x, reduction='none')  # shape: [total_num_nodes, num_features]
+            # Only consider the coordinate part (first two features) for loss calculation
+            loss = F.mse_loss(out[:, :2], data.x[:, :2], reduction='none')  # shape: [total_num_nodes, 2]
 
             # Average over features (x, y) for each node
             loss_per_node = loss.mean(dim=1)  # shape: [total_num_nodes]
@@ -44,10 +50,10 @@ def main():
             node_indices = torch.arange(data.x.size(0), device=device) % num_keypoints
 
             # Assign weights to keypoints based on importance
-            weights = torch.zeros(num_keypoints, device=device)
-            weights[arm_leg_indices] = 2.0   # 팔과 다리 부분에 높은 가중치
-            weights[torso_thigh_indices] = 1     # 몸통과 허벅지 부분에 낮은 가중치 
-            weights[face_indices] = 0.01      # 얼굴 부분에 매우 낮은 가중치 (거의 고정)
+            weights = torch.ones(num_keypoints, device=device)  # 기본 가중치 1로 초기화
+            weights[arm_leg_indices] = 0.8   # 팔과 다리 부분에 높은 가중치
+            weights[torso_thigh_indices] = 0.4     # 몸통과 허벅지 부분에 기본 가중치 
+            weights[face_indices] = 0.005      # 얼굴 부분에 매우 낮은 가중치
 
             # Apply weights to each node in the batch
             weights_per_node = weights[node_indices]
