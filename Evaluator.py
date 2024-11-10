@@ -13,7 +13,7 @@ class Evaluator:
     def __init__(self, model_path, json_dir):
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-        # 샘플 데이터를 이용하여 in_channels를 결정합니다.
+        # 샘플 데이터를 이용하여 in_channels 결정
         sample_dataset = KeypointDataset(json_dir=json_dir)
         sample_data = sample_dataset[0]
         in_channels = sample_data.x.size(1)
@@ -28,11 +28,13 @@ class Evaluator:
         data = data.to(self.device)
         with torch.no_grad():
             out = self.model(data.x, data.edge_index)
-            # 좌표 부분만을 사용하여 유사도를 계산합니다.
-            # 누락된 키포인트를 고려하여 마스크를 적용합니다.
-            valid_mask = (data.x[:, 0] != 0) | (data.x[:, 1] != 0)
-            similarity = F.cosine_similarity(out[valid_mask, :2], data.x[valid_mask, :2], dim=1).mean().item()
-        return similarity, out.cpu().numpy()  # 시각화를 위해 예측된 특징 벡터를 반환합니다.
+            # 좌표 부분만을 사용하여 유사도 계산
+            valid_mask = (data.x[:, :2].sum(dim=1) != 0)
+            if valid_mask.sum() > 0:
+                similarity = F.cosine_similarity(out[valid_mask, :2], data.x[valid_mask, :2], dim=1).mean().item()
+            else:
+                similarity = 0.0
+        return similarity, out.cpu().numpy()  # 시각화를 위해 예측된 특징 벡터를 반환합니다
 
 def visualize_pose(json_data, predicted_features, similarity_score, filename):
     # JSON에서 이미지의 가로와 세로 크기를 가져옵니다.
@@ -83,8 +85,8 @@ def visualize_pose(json_data, predicted_features, similarity_score, filename):
 
 def plot_and_save(ax, original_keypoints, predicted_keypoints, x_min, y_min, width_bbox, height_bbox, similarity_score, filename, image_width, image_height):
     # 디렉토리가 존재하지 않으면 생성합니다.
-    os.makedirs("original", exist_ok=True)
-    os.makedirs("eval", exist_ok=True)
+    os.makedirs("5/original", exist_ok=True)
+    os.makedirs("5/eval", exist_ok=True)
 
     # 스켈레톤 연결 정보
     skeleton = [
@@ -107,7 +109,7 @@ def plot_and_save(ax, original_keypoints, predicted_keypoints, x_min, y_min, wid
     ax.scatter(original_keypoints[:, 0], original_keypoints[:, 1], c='blue', s=50)
     ax.set_title("Original Keypoints")
     ax.axis('off')
-    original_path = os.path.join("original", f"{filename}_original.png")
+    original_path = os.path.join("5/original", f"{filename}_original.png")
     plt.savefig(original_path, bbox_inches='tight', pad_inches=0)
     print(f"Original plot saved as {original_path}")
     ax.cla()  # 다음 플롯을 위해 축을 초기화합니다.
@@ -126,14 +128,14 @@ def plot_and_save(ax, original_keypoints, predicted_keypoints, x_min, y_min, wid
     ax.scatter(predicted_keypoints[:, 0], predicted_keypoints[:, 1], c='red', s=50)
     ax.set_title(f"Predicted Keypoints (Similarity: {similarity_score:.4f})")
     ax.axis('off')
-    eval_path = os.path.join("eval", f"{filename}_eval.png")
+    eval_path = os.path.join("5/eval", f"{filename}_eval.png")
     plt.savefig(eval_path, bbox_inches='tight', pad_inches=0)
     print(f"Evaluation plot saved as {eval_path}")
     plt.close()
 
 if __name__ == '__main__':
     # 테스트 JSON 폴더 경로 정의
-    test_json_dir = './test_img_3'
+    test_json_dir = './test_img_5'
 
     # 데이터셋 및 평가자 초기화
     dataset = KeypointDataset(json_dir=test_json_dir)

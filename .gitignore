@@ -3,8 +3,13 @@ test/
 test_img_1/
 test_img_2/
 test_img_3/
+test_img_4/
+test_img_5/
 test_img_onii/
 3/
+4/
+5/
+
 eval/
 original/
 gat_model.pth
