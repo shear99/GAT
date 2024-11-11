@@ -1,4 +1,3 @@
-# KeypointDataset.py
 import os
 import json
 import torch
@@ -54,11 +53,17 @@ class KeypointDataset(Dataset):
             [5, 11], [6, 12], [5, 6], [5, 7], [6, 8],
             [7, 9], [8, 10], [3, 5], [4, 6],
             [0, 1], [0, 2], [1, 2], [1, 3], [2, 4]
-            # 추가된 엣지: [0,1], [0,2], [1,2], [1,3], [2,4]
         ]
         # edge_index를 텐서로 변환
         edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
         return edge_index
+
+    def create_edge_weight(self, x, edge_index):
+        # 노드 특징을 사용하여 Edge Weight를 생성합니다 (Affinity Generation).
+        row, col = edge_index
+        edge_weight = torch.norm(x[row] - x[col], dim=1)  # 노드 간의 거리
+        edge_weight = torch.exp(-edge_weight)  # 거리에 대한 가우시안 커널 적용
+        return edge_weight
 
     def create_skeleton_for_features(self):
         # 각도 계산에 사용할 스켈레톤
@@ -66,10 +71,7 @@ class KeypointDataset(Dataset):
             [15,13], [13,11], [16,14], [14,12], [11,12],
             [5,11], [6,12], [5,6], [5,7], [6,8],
             [7,9], [8,10], [3,5], [4,6],
-            # 제외된 엣지: [0,1], [0,2], [1,2], [1,3], [2,4]
-            # 추가된 엣지 (학습에만 사용): [4,10], [3,9], [6,10]
-            [4,10], [3,9], [6,10],
-            [15,16], [13,14],[11,15],[12,16]
+            [4,10], [3,9], [6,10]
         ]
         skeleton_for_features = torch.tensor(skeleton_for_features, dtype=torch.long)
         return skeleton_for_features
@@ -125,7 +127,10 @@ class KeypointDataset(Dataset):
             features.append(node_feature)
         x = torch.stack(features)  # Shape: [num_nodes, feature_size]
 
-        data = Data(x=x, edge_index=edge_index)
+        # Edge Weight 생성 (Affinity Generation)
+        edge_weight = self.create_edge_weight(x[:, :2], edge_index)
+
+        data = Data(x=x, edge_index=edge_index, edge_weight=edge_weight)
         return data
 
     def __len__(self):
