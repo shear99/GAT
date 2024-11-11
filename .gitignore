@@ -1,15 +1,9 @@
 .DS_STORE
-test/
-test_img_1/
-test_img_2/
-test_img_3/
-test_img_4/
-test_img_5/
-1/
-2/
-3/
-4/
-5/
+test_data/
+input/
+output/
+.gitignore
+
 
 eval/
 original/

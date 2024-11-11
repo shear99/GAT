@@ -46,91 +46,80 @@ class KeypointDataset(Dataset):
         kp_array = np.array(kp_coords)
         return kp_array
 
-    def create_edge_index(self):
-        # 스켈레톤 연결 (0-based indexing)
-        edge_index = [
-            [15, 13], [13, 11], [16, 14], [14, 12], [11, 12],
-            [5, 11], [6, 12], [5, 6], [5, 7], [6, 8],
-            [7, 9], [8, 10], [3, 5], [4, 6],
-            [0, 1], [0, 2], [1, 2], [1, 3], [2, 4]
-        ]
-        # edge_index를 텐서로 변환
-        edge_index = torch.tensor(edge_index, dtype=torch.long).t().contiguous()
-        return edge_index
-
-    def create_edge_weight(self, x, edge_index):
-        # 노드 특징을 사용하여 Edge Weight를 생성합니다 (Affinity Generation).
-        row, col = edge_index
-        edge_weight = torch.norm(x[row] - x[col], dim=1)  # 노드 간의 거리
-        edge_weight = torch.exp(-edge_weight)  # 거리에 대한 가우시안 커널 적용
-        return edge_weight
-
     def create_skeleton_for_features(self):
-        # 각도 계산에 사용할 스켈레톤
+        # 각도 계산에 사용할 스켈레톤 연결 및 가중치 정의
         skeleton_for_features = [
             [15,13], [13,11], [16,14], [14,12], [11,12],
             [5,11], [6,12], [5,6], [5,7], [6,8],
             [7,9], [8,10], [3,5], [4,6],
-            [4,10], [3,9], [6,10]
+            [4,10], [3,9], [6,10], [5,9],
+            [12,16], [11,15],
+            [6,11], [5,12]
         ]
+        # 이미 리스트를 텐서로 변환
         skeleton_for_features = torch.tensor(skeleton_for_features, dtype=torch.long)
-        return skeleton_for_features
+
+        # 각 연결의 가중치 (예시로 설정)
+        edge_weights_for_features = torch.tensor([
+            0.8, 0.8, 0.8, 0.8, 0.8,
+            0.5, 0.5, 0.8, 0.9, 0.9,
+            0.9, 0.9, 0.2, 0.2,
+            0.4, 0.4, 0.4, 0.4,
+            0.4, 0.4,
+            0.3, 0.3
+        ], dtype=torch.float)
+
+        return skeleton_for_features, edge_weights_for_features
 
     def create_data_object(self, kp_array):
         x = torch.zeros((17, 2), dtype=torch.float)
         num_keypoints = kp_array.shape[0]
         x[:num_keypoints] = torch.tensor(kp_array, dtype=torch.float)
-        # Define edge_index for GAT message passing
-        edge_index = self.create_edge_index()
-        # Skeleton for angle computation
-        skeleton_for_features = self.create_skeleton_for_features()
-        data = self.create_data_object_with_features(x, edge_index, skeleton_for_features)
+        # Skeleton for angle computation and edge weights
+        skeleton_for_features, edge_weights_for_features = self.create_skeleton_for_features()
+        data = self.create_data_object_with_features(x, skeleton_for_features, edge_weights_for_features)
         return data
 
-    def create_data_object_with_features(self, x, edge_index, skeleton_for_features):
+    def create_data_object_with_features(self, x, skeleton_for_features, edge_weights_for_features):
         num_nodes = x.size(0)
 
         # 각 노드별 연결 정보 생성
         adjacency_list = [[] for _ in range(num_nodes)]
-        for edge in skeleton_for_features:
+        for idx, edge in enumerate(skeleton_for_features):
             i, j = edge
-            adjacency_list[i].append(j)
-            adjacency_list[j].append(i)  # 무방향 그래프 가정
+            weight = edge_weights_for_features[idx]
+            adjacency_list[i].append((j, weight))
+            adjacency_list[j].append((i, weight))  # 무방향 그래프 가정
 
-        # 각 노드별로 단위 벡터 계산
+        # 각 노드별로 단위 벡터 계산 및 가중치 적용
         features = []
-        max_connections = 4  # 노드당 최대 연결 수 (필요에 따라 조정)
+        max_connections = 4
         for i in range(num_nodes):
             connected_nodes = adjacency_list[i]
             unit_vectors = []
-            for j in connected_nodes:
+            for (j, weight) in connected_nodes:
                 if x[j].sum() == 0 or x[i].sum() == 0:
-                    # 키포인트가 누락된 경우
                     unit_vec = torch.zeros(2)
                 else:
                     vec = x[j] - x[i]
                     norm = torch.norm(vec)
                     if norm != 0:
-                        unit_vec = vec / norm
+                        unit_vec = (vec / norm) * weight
                     else:
                         unit_vec = torch.zeros_like(vec)
                 unit_vectors.append(unit_vec)
-            # 최대 연결 수에 맞게 패딩 또는 자르기
             if len(unit_vectors) < max_connections:
                 unit_vectors += [torch.zeros(2) for _ in range(max_connections - len(unit_vectors))]
             else:
                 unit_vectors = unit_vectors[:max_connections]
-            # 단위 벡터를 펼치기
             unit_vectors_flat = torch.cat(unit_vectors)
-            # 노드 좌표와 단위 벡터를 결합
             node_feature = torch.cat([x[i], unit_vectors_flat])
             features.append(node_feature)
-        x = torch.stack(features)  # Shape: [num_nodes, feature_size]
+        x = torch.stack(features)
 
-        # Edge Weight 생성 (Affinity Generation)
-        edge_weight = self.create_edge_weight(x[:, :2], edge_index)
-
-        data = Data(x=x, edge_index=edge_index, edge_weight=edge_weight)
+        # edge_index 생성 시 경고 발생하지 않도록 수정
+        edge_index = skeleton_for_features.t().contiguous()
+        data = Data(x=x, edge_index=edge_index)
         return data
 
     def __len__(self):
