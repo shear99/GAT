@@ -68,7 +68,8 @@ class KeypointDataset(Dataset):
             [7,9], [8,10], [3,5], [4,6],
             # 제외된 엣지: [0,1], [0,2], [1,2], [1,3], [2,4]
             # 추가된 엣지 (학습에만 사용): [4,10], [3,9], [6,10]
-            [4,10], [3,9], [6,10]
+            [4,10], [3,9], [6,10],
+            [15,16], [13,14],[11,15],[12,16]
         ]
         skeleton_for_features = torch.tensor(skeleton_for_features, dtype=torch.long)
         return skeleton_for_features

@@ -1,4 +1,3 @@
-# Evaluator.py
 import os
 import json
 import torch
@@ -36,6 +35,61 @@ class Evaluator:
                 similarity = 0.0
         return similarity, out.cpu().numpy()  # 시각화를 위해 예측된 특징 벡터를 반환합니다
 
+def calculate_keypoint_differences(original_keypoints, predicted_keypoints, image_width, image_height):
+    # 키포인트 좌표를 이미지 크기로 정규화
+    original_normalized = original_keypoints / np.array([image_width, image_height])
+    predicted_normalized = predicted_keypoints / np.array([image_width, image_height])
+    
+    # 키포인트별 좌표 차이 계산
+    differences = original_normalized - predicted_normalized
+    # 유클리드 거리 계산
+    distances = np.linalg.norm(differences, axis=1)
+    # 평균 거리 계산
+    mean_distance = np.mean(distances)
+    return distances, mean_distance
+
+def save_predicted_json(json_data, predicted_keypoints, filename):
+    # 원본 JSON 데이터에서 필요한 정보 추출
+    output_data = {
+        "image_filename": json_data.get("image_filename", ""),
+        "image_height": json_data.get("image_height", 0),
+        "image_width": json_data.get("image_width", 0),
+        "image_detect_count": json_data.get("image_detect_count", 1),
+        "model_name": json_data.get("model_name", ""),
+        "device_used": json_data.get("device_used", ""),
+        "arguments": json_data.get("arguments", {}),
+        "pose_estimation_info": []
+    }
+
+    # 예측된 keypoints와 바운딩 박스 정보 구성
+    pose_info = {}
+    # 예측된 바운딩 박스는 원본과 동일하다고 가정
+    pose_info["bbox"] = json_data["pose_estimation_info"][0]["bbox"]
+
+    # 예측된 keypoints 리스트 생성
+    keypoints_list = []
+    for idx, (x, y) in enumerate(predicted_keypoints):
+        keypoint = {
+            "index": idx,
+            "coordinates": {
+                "x": float(x),
+                "y": float(y)
+            },
+            "score": None,  # score는 없으므로 None으로 설정
+            "type": None    # type도 없으므로 None으로 설정
+        }
+        keypoints_list.append(keypoint)
+
+    pose_info["keypoints"] = keypoints_list
+    output_data["pose_estimation_info"].append(pose_info)
+
+    # JSON 저장 디렉토리 생성
+    os.makedirs("5/predicted_json", exist_ok=True)
+    json_path = os.path.join("5/predicted_json", f"{filename}_predicted.json")
+    with open(json_path, 'w', encoding='utf-8') as f:
+        json.dump(output_data, f, ensure_ascii=False, indent=4)
+    print(f"Predicted keypoints JSON saved as {json_path}")
+
 def visualize_pose(json_data, predicted_features, similarity_score, filename):
     # JSON에서 이미지의 가로와 세로 크기를 가져옵니다.
     image_width = json_data['image_width']
@@ -63,7 +117,6 @@ def visualize_pose(json_data, predicted_features, similarity_score, filename):
     original_keypoints = np.array(original_keypoints)
 
     # 예측된 키포인트 좌표 (재스케일링 필요)
-    # 바운딩 박스 좌표 추출
     x_min = bbox['top_left']['x']
     y_min = bbox['top_left']['y']
     x_max = bbox['bottom_right']['x']
@@ -72,7 +125,6 @@ def visualize_pose(json_data, predicted_features, similarity_score, filename):
     width_bbox = x_max - x_min
     height_bbox = y_max - y_min
 
-    # 예측된 특징 벡터에서 좌표 부분만 추출
     predicted_keypoints = predicted_features[:, :2]
 
     # 좌표를 원본 이미지 크기에 맞게 스케일링
@@ -80,13 +132,26 @@ def visualize_pose(json_data, predicted_features, similarity_score, filename):
     predicted_keypoints_rescaled[:, 0] = predicted_keypoints_rescaled[:, 0] * width_bbox + x_min
     predicted_keypoints_rescaled[:, 1] = predicted_keypoints_rescaled[:, 1] * height_bbox + y_min
 
-    # 원본 및 예측된 키포인트와 바운딩 박스를 그립니다.
-    plot_and_save(ax, original_keypoints, predicted_keypoints_rescaled, x_min, y_min, width_bbox, height_bbox, similarity_score, filename, image_width, image_height)
+    # 키포인트 차이 계산
+    distances, mean_distance = calculate_keypoint_differences(
+        original_keypoints, predicted_keypoints_rescaled, image_width, image_height)
 
-def plot_and_save(ax, original_keypoints, predicted_keypoints, x_min, y_min, width_bbox, height_bbox, similarity_score, filename, image_width, image_height):
+    # 결과 출력
+    print(f"Mean keypoint distance (normalized): {mean_distance:.4f}")
+    for idx, distance in enumerate(distances):
+        print(f"Keypoint {idx}: Distance = {distance:.4f}")
+
+    # 예측된 키포인트를 JSON으로 저장
+    save_predicted_json(json_data, predicted_keypoints_rescaled, filename)
+
+    # 시각화
+    plot_and_save(ax, original_keypoints, predicted_keypoints_rescaled, x_min, y_min, width_bbox, height_bbox, similarity_score, filename, image_width, image_height, distances, mean_distance)
+
+def plot_and_save(ax, original_keypoints, predicted_keypoints, x_min, y_min, width_bbox, height_bbox, similarity_score, filename, image_width, image_height, distances, mean_distance):
     # 디렉토리가 존재하지 않으면 생성합니다.
     os.makedirs("5/original", exist_ok=True)
     os.makedirs("5/eval", exist_ok=True)
+    os.makedirs("5/differences", exist_ok=True)
 
     # 스켈레톤 연결 정보
     skeleton = [
@@ -131,6 +196,30 @@ def plot_and_save(ax, original_keypoints, predicted_keypoints, x_min, y_min, wid
     eval_path = os.path.join("5/eval", f"{filename}_eval.png")
     plt.savefig(eval_path, bbox_inches='tight', pad_inches=0)
     print(f"Evaluation plot saved as {eval_path}")
+    ax.cla()
+
+    # 원본 및 예측된 키포인트와 차이 벡터 그리기
+    ax.set_xlim(0, image_width)
+    ax.set_ylim(0, image_height)
+    ax.invert_yaxis()
+    ax.add_patch(rect)
+    ax.scatter(original_keypoints[:, 0], original_keypoints[:, 1], c='blue', s=50, label='Original')
+    ax.scatter(predicted_keypoints[:, 0], predicted_keypoints[:, 1], c='red', s=50, marker='x', label='Predicted')
+
+    # 키포인트 간 차이 벡터 그리기
+    for i in range(len(original_keypoints)):
+        ax.plot([original_keypoints[i, 0], predicted_keypoints[i, 0]],
+                [original_keypoints[i, 1], predicted_keypoints[i, 1]],
+                'g--', linewidth=1)
+        # 각 키포인트에 거리 표시
+        ax.text(predicted_keypoints[i, 0], predicted_keypoints[i, 1], f'{distances[i]:.2f}', color='green')
+
+    ax.set_title(f"Keypoint Differences (Mean Distance: {mean_distance:.4f})")
+    ax.legend()
+    ax.axis('off')
+    diff_path = os.path.join("5/differences", f"{filename}_differences.png")
+    plt.savefig(diff_path, bbox_inches='tight', pad_inches=0)
+    print(f"Differences plot saved as {diff_path}")
     plt.close()
 
 if __name__ == '__main__':

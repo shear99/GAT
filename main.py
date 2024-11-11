@@ -30,7 +30,7 @@ def main():
     face_indices = [0, 1, 2, 3, 4]  # 얼굴 부분
 
     # 학습 루프
-    num_epochs = 100
+    num_epochs = 60
     for epoch in range(num_epochs):
         model.train()
         total_loss = 0
@@ -61,9 +61,9 @@ def main():
             # 키포인트별 가중치 적용
             node_indices = torch.arange(data.x.size(0), device=device) % num_keypoints
             weights = torch.ones(num_keypoints, device=device)
-            weights[arm_leg_indices] = 0.758
-            weights[torso_thigh_indices] = 0.387
-            weights[face_indices] = 0.1
+            weights[arm_leg_indices] = 0.8
+            weights[torso_thigh_indices] = 0.5
+            weights[face_indices] = 0.2
             weights_per_node = weights[node_indices]
 
             # 가중치를 적용한 손실 계산
